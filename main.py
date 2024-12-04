@@ -6,8 +6,10 @@ from email.message import EmailMessage
 from fpdf import FPDF
 import pandas
 
-# Read the
+# Read the required data
 df = pandas.read_csv("hotels.csv", dtype={"id":str})
+df_cards = pandas.read_csv("cards.csv", dtype=str).to_dict(orient="records")
+df_cards_secure = pandas.read_csv("card_security.csv", dtype=str)
 
 def clean_file():
     file_pdf = glob.glob("reservation.pdf")
@@ -31,8 +33,7 @@ class Hotel:
         availability = df.loc[df["id"] == self.hotel_id, "available"].squeeze()
         if availability == "yes":
             return True
-        else:
-            return False
+
 
 class ReservationTicket:
     def __init__(self, customer_name, hotel_object):
@@ -104,23 +105,54 @@ class PDF:
         print("pdf generate!")
         return pdf_file
 
+class CreditCard:
+    def __init__(self, number):
+        self.number = number
+
+    # as per cards.cvc
+    def validate(self, expiration, holder, cvc):
+        card_data = {"number":self.number, "expiration":expiration,
+                     "holder":holder, "cvc":cvc}
+        if card_data in df_cards:
+            return True
+        else:
+            return False
+
+class SecureCreditCard(CreditCard):
+    def authenticate(self, given_password):
+        password = df_cards_secure.loc[df_cards_secure["number"] == self.number,"password"].squeeze()
+        if password == given_password:
+            return True
+        else:
+            return False
+
+
 print(df)
 hotel_ID = input("Enter the id of the hotel: ")
 hotel = Hotel(hotel_ID)
 
 if hotel.available():
-    hotel.book()
-    name = input("Enter your name: ")
-    reservation_ticket = ReservationTicket(customer_name=name,  hotel_object=hotel)
-    print(reservation_ticket.generate())
+    number = input("Enter Credit Card number: ") #number = 1234567890123456
+    credit_card = SecureCreditCard(number = number)
+    if credit_card.validate(expiration = "12/26", holder="JOHN SMITH", cvc="123"):
+        passw = input("Enter your Credit card password: ")
+        if credit_card.authenticate(given_password=passw):
+            hotel.book()
+            name = input("Enter your name: ")
+            reservation_ticket = ReservationTicket(customer_name=name,  hotel_object=hotel)
+            print(reservation_ticket.generate())
 
-    pdf = PDF(customer_name=name, hotel_name=hotel.name, hotel_city=hotel.city)
-    pdf_filename = pdf.pdf_generate()
+            pdf = PDF(customer_name=name, hotel_name=hotel.name, hotel_city=hotel.city)
+            pdf_filename = pdf.pdf_generate()
 
-    email = Email()
-    email.send(subject="Hotel Reservation Confirmation", message=reservation_ticket.generate(), filename=pdf_filename)
+            email = Email()
+            email.send(subject="Hotel Reservation Confirmation",
+                       message=reservation_ticket.generate(), filename=pdf_filename)
 
-    clean_file()
-
+            clean_file()
+        else:
+            print("Credit card authentication failed")
+    else:
+        print("There was a problem with your payment")
 else:
     print("Hotel is not free!")
